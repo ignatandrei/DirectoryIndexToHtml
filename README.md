@@ -1,13 +1,20 @@
 # DirectoryIndexToHtml
 
+[![NuGet version](https://img.shields.io/nuget/v/DirectoryIndexToHtml)](https://www.nuget.org/packages/DirectoryIndexToHtml)
+[![NuGet downloads](https://img.shields.io/nuget/dt/DirectoryIndexToHtml)](https://www.nuget.org/packages/DirectoryIndexToHtml)
+
+Generate self-contained `index.html` directory listings with the
+`directory-index` .NET tool.
+
 ## Install as a .NET tool
 
-After downloading and extracting the `.nupkg` from the release's Actions
-artifact, install it globally:
+Install the latest version from [NuGet.org](https://www.nuget.org/packages/DirectoryIndexToHtml):
 
 ```shell
-dotnet tool install --global --add-source <directory-containing-package> DirectoryIndexToHtml
+dotnet tool install --global DirectoryIndexToHtml
 ```
+
+Update an existing global installation with `dotnet tool update --global DirectoryIndexToHtml`.
 
 Generate `index.html` in a directory and all its subdirectories:
 
@@ -15,8 +22,13 @@ Generate `index.html` in a directory and all its subdirectories:
 directory-index --folder ./site
 ```
 
-You can provide a custom Scriban template with `--template <path>`. The tool
-requires the .NET 11 runtime.
+Use a custom Scriban template with `--template <path>`:
+
+```shell
+directory-index --folder ./site --template ./index.sbn
+```
+
+The tool requires the .NET 11 runtime.
 
 ## Package locally
 
