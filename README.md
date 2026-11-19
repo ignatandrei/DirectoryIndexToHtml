@@ -34,6 +34,7 @@ dotnet tool install --global --add-source ./artifacts DirectoryIndexToHtml
 
 ## Release artifact
 
-Publishing a GitHub Release builds the tool package and uploads it as an Actions
-artifact. Its version is `11.yyyy.MMdd`, based on the package build date. The
-artifact is retained for one day.
+Run the **Package .NET tool** workflow manually from the GitHub Actions tab to
+build the tool package and upload it as an Actions artifact. Its version is
+`11.yyyy.MMdd`, based on the package build date. The artifact is retained for
+one day.
