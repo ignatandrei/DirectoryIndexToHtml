@@ -1,6 +1,7 @@
 using System.Runtime.ExceptionServices;
 using Microsoft.Extensions.FileProviders;
 using Scriban;
+using Scriban.Runtime;
 
 namespace DirectoryIndex.Core;
 
@@ -106,7 +107,12 @@ public sealed class DirectoryIndexGenerator
             ["breadcrumbs"] = breadcrumbs
         };
 
-        var page = _template.Render(model);
+        var context = new TemplateContext
+        {
+            LoopLimit = Math.Max(entries.Count, breadcrumbs.Count)
+        };
+        context.PushGlobal(ScriptObject.From(model));
+        var page = _template.Render(context);
         var outputPath = directoryPath.Length == 0 ? "index.html" : $"{directoryPath}/index.html";
         pages.Add(outputPath, page);
 

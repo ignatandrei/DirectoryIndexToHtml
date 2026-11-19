@@ -79,6 +79,28 @@ public partial class DirectoryIndexFeature
         return Task.CompletedTask;
     }
 
+    private Task Given_more_than_1000_files()
+    {
+        var provider = new TestFileProvider();
+        for (var index = 0; index < 1001; index++)
+        {
+            provider.AddFile($"file-{index:D4}.txt");
+        }
+
+        _provider = provider;
+        _output = new RecordingOutputWriter();
+        _template = "{{ for e in entries }}{{ e.name }};{{ end }}";
+        return Task.CompletedTask;
+    }
+
+    private Task Then_all_1001_entries_are_rendered()
+    {
+        var entries = _output!.Pages["index.html"].Split(';', StringSplitOptions.RemoveEmptyEntries);
+        Assert.Equal(1001, entries.Length);
+        Assert.Contains("file-1000.txt", entries);
+        return Task.CompletedTask;
+    }
+
     private Task Given_directories_and_files_in_mixed_order()
     {
         _provider = new TestFileProvider()
@@ -268,6 +290,24 @@ public partial class DirectoryIndexFeature
     {
         Assert.DoesNotContain("linked", _output!.Pages["index.html"]);
         Assert.DoesNotContain("linked/index.html", _output.Pages.Keys);
+        return Task.CompletedTask;
+    }
+
+    private async Task Given_physical_hidden_dot_prefixed_and_system_files()
+    {
+        _root = CreateTemporaryDirectory();
+        await File.WriteAllTextAsync(Path.Combine(_root, ".dot-prefixed.txt"), "dot");
+        var hiddenFile = Path.Combine(_root, "hidden.txt");
+        await File.WriteAllTextAsync(hiddenFile, "hidden");
+        File.SetAttributes(hiddenFile, FileAttributes.Hidden);
+        var systemFile = Path.Combine(_root, "system.txt");
+        await File.WriteAllTextAsync(systemFile, "system");
+        File.SetAttributes(systemFile, FileAttributes.System);
+    }
+
+    private Task Then_all_physical_files_are_listed()
+    {
+        Assert.Equal(".dot-prefixed.txt;hidden.txt;system.txt;", _output!.Pages["index.html"]);
         return Task.CompletedTask;
     }
 

@@ -1,4 +1,5 @@
 using Microsoft.Extensions.FileProviders;
+using Microsoft.Extensions.FileProviders.Physical;
 using Microsoft.Extensions.Primitives;
 
 namespace DirectoryIndex.Core;
@@ -11,7 +12,7 @@ public sealed class PhysicalFileProviderAdapter : IFileProvider, IDisposable
     public PhysicalFileProviderAdapter(string root)
     {
         _root = Path.GetFullPath(root);
-        _provider = new PhysicalFileProvider(_root);
+        _provider = new PhysicalFileProvider(_root, ExclusionFilters.None);
     }
 
     public IDirectoryContents GetDirectoryContents(string subpath)

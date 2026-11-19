@@ -51,6 +51,15 @@ public partial class DirectoryIndexFeature : FeatureFixture
     }
 
     [Scenario]
+    public async Task Renders_listings_with_more_than_1000_entries()
+    {
+        await Runner.RunScenarioAsync(
+            Given_more_than_1000_files,
+            When_the_index_pages_are_generated,
+            Then_all_1001_entries_are_rendered);
+    }
+
+    [Scenario]
     public async Task Default_template_renders_empty_state_and_sorted_directories_before_files()
     {
         await Runner.RunScenarioAsync(
@@ -102,6 +111,15 @@ public partial class DirectoryIndexFeature : FeatureFixture
             Given_a_directory_link_to_an_external_folder,
             When_the_physical_directory_is_indexed,
             Then_the_linked_directory_is_not_listed_or_traversed));
+    }
+
+    [Scenario]
+    public async Task Physical_adapter_includes_hidden_dot_prefixed_and_system_files()
+    {
+        await RunWithTemporaryDirectoryCleanup(() => Runner.RunScenarioAsync(
+            Given_physical_hidden_dot_prefixed_and_system_files,
+            When_the_physical_directory_is_indexed,
+            Then_all_physical_files_are_listed));
     }
 
     [Scenario]
