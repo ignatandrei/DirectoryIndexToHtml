@@ -1,0 +1,35 @@
+name: Package .NET tool
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 11.x
+
+      - name: Pack tool
+        shell: pwsh
+        run: |
+          $version = "11.$(Get-Date -Format 'yyyy.MMdd')"
+          dotnet pack src/csharp/DirectoryIndex.Cli/DirectoryIndex.Cli.csproj `
+            --configuration Release `
+            --output ./artifacts `
+            "-p:PackageVersion=$version"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Upload tool package
+        uses: actions/upload-artifact@v4
+        with:
+          name: DirectoryIndexToHtml-${{ github.event.release.tag_name }}
+          path: ./artifacts/*.nupkg
+          retention-days: 1
