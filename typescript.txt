@@ -1,0 +1,14 @@
+Read the specification.md and the C# solution
+
+
+
+Use grilling skill . I want you to transform this into an npm package, executed with npx . Grill me with questions about what is not clear
+
+Write a specification .md in a typescript folder, similar with C# folder
+
+New AI
+
+read src/typescript/specification.md
+Please implement and run tests .
+
+Construct the npm package and attach as artifact in the yaml
