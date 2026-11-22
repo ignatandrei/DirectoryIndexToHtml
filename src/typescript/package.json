@@ -1,0 +1,40 @@
+{
+  "name": "directory-index-to-html",
+  "version": "1.0.0",
+  "description": "Generate self-contained HTML directory index pages.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "directory-index": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "package": "npm run build && npm pack"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT",
+  "keywords": [
+    "directory",
+    "index",
+    "html"
+  ],
+  "dependencies": {
+    "commander": "^14.0.2",
+    "liquidjs": "^10.21.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.2",
+    "vitest": "^3.2.4"
+  }
+}

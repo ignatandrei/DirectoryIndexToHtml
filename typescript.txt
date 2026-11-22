@@ -1,0 +1,44 @@
+Read the specification.md and the C# solution
+
+
+
+Use grilling skill . I want you to transform this into an npm package, executed with npx . Grill me with questions about what is not clear
+
+Write a specification .md in a typescript folder, similar with C# folder
+
+New AI
+
+read src/typescript/specification.md
+Please implement and run tests .
+
+Construct the npm package and attach as artifact in the yaml
+
+-- PR Review
+
+Copilot add to batch
+
+
+Then i
+```
+@copilot :
+see code rabbit comments in this PR and find if something should be solved. If yes, solve. If not, say something
+```
+
+Answer:
+Yes—three current CodeRabbit findings were valid. I addressed them in 38df6e3; all 17 TypeScript tests and the build pass.
+
+---
+
+Me:
+
+Read from Yaml the implementation of a version for C Sharp, then reproduce in Typescript. 
+
+---
+Me :
+Why did you put in those different workflow yaml ? Put in the same work flow yaml 
+
+---
+
+Me:
+The version for typescript should start with node version ,  11.YYYY.MMDD 
+
