@@ -3,6 +3,7 @@ name: TypeScript package
 on:
   push:
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -44,6 +45,10 @@ jobs:
       - name: Install
         working-directory: src/typescript
         run: npm ci
+      - name: Set release version
+        if: github.event_name == 'workflow_dispatch'
+        working-directory: src/typescript
+        run: npm version "20.$(date -u +'%Y.%m%d')" --no-git-tag-version
       - name: Construct npm package
         working-directory: src/typescript
         run: npm run package
