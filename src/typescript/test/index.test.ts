@@ -8,6 +8,9 @@ import {
   type DirectoryFileProvider,
   type DirectoryOutputWriter,
 } from "../src/index.js";
+import { runCli } from "../src/cli.js";
+import { TransactionalDirectoryOutputWriter } from "../src/output.js";
+import { PhysicalFileProvider } from "../src/physical.js";
 
 class MemoryProvider implements DirectoryFileProvider {
   private directories = new Map<string, DirectoryEntry[]>();
@@ -113,6 +116,57 @@ describe("generateDirectoryIndexes", () => {
       outputWriter: writer,
     });
     expect(writer.pages.get("index.html")).toBe("Name: directory-index-template");
+    expect(writer.pages.get("index.html")).not.toContain("layout.liquid");
+  });
+
+  it("preserves literal POSIX backslashes in provider paths", async () => {
+    if (path.sep !== "/") return;
+    const root = path.join(os.tmpdir(), "directory-index-backslash");
+    const provider = new MemoryProvider();
+    provider.addDirectory(root, [
+      { name: "a\\b", isDirectory: true, isSymbolicLink: false },
+    ]);
+    provider.addDirectory(path.join(root, "a\\b"), []);
+    const writer = new RecordingWriter();
+
+    await generateDirectoryIndexes({ folder: root, fileProvider: provider, outputWriter: writer });
+
+    expect(writer.pages.has("a\\b/index.html")).toBe(true);
+    expect(writer.pages.has("a/b/index.html")).toBe(false);
+    expect(writer.pages.get("index.html")).toContain("a%5Cb/index.html");
+  });
+
+  it("keeps slash-delimited provider paths and sorts raw entry names", async () => {
+    const root = path.join(os.tmpdir(), "directory-index-provider-path");
+    const provider = new MemoryProvider();
+    provider.addDirectory(root, [
+      { name: "docs/report.txt", isDirectory: false, isSymbolicLink: false },
+      { name: "0.txt", isDirectory: false, isSymbolicLink: false },
+      { name: "&lt;.txt", isDirectory: false, isSymbolicLink: false },
+    ]);
+    const writer = new RecordingWriter();
+
+    await generateDirectoryIndexes({ folder: root, fileProvider: provider, outputWriter: writer });
+
+    const page = writer.pages.get("index.html") ?? "";
+    expect(page).toContain('href="docs/report.txt"');
+    expect(page).not.toContain('href="docs%2Freport.txt"');
+    expect(page.indexOf('href="&amp;lt;.txt"')).toBeLessThan(page.indexOf('href="0.txt"'));
+  });
+
+  it("includes directories named like generated index files", async () => {
+    const root = path.join(os.tmpdir(), "directory-index-named-directory");
+    const provider = new MemoryProvider();
+    provider.addDirectory(root, [
+      { name: "INDEX.HTML", isDirectory: true, isSymbolicLink: false },
+    ]);
+    provider.addDirectory(path.join(root, "INDEX.HTML"), []);
+    const writer = new RecordingWriter();
+
+    await generateDirectoryIndexes({ folder: root, fileProvider: provider, outputWriter: writer });
+
+    expect(writer.pages.has("INDEX.HTML/index.html")).toBe(true);
+    expect(writer.pages.get("index.html")).toContain("INDEX.HTML/index.html");
   });
 
   it("renders strict custom Liquid templates and escapes values", async () => {
@@ -181,5 +235,105 @@ describe("generateDirectoryIndexes", () => {
     await generateDirectoryIndexes({ folder: root });
     expect(await fs.readFile(path.join(root, "index.html"), "utf8")).toContain("nested");
     expect(await fs.readFile(path.join(root, "nested", "index.html"), "utf8")).toContain("a.txt");
+  });
+
+  it("does not follow symlinked output destinations or ancestors", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "directory-index-output-link-"));
+    const outside = path.join(os.tmpdir(), `directory-index-outside-${Date.now()}`);
+    const destinationLink = path.join(root, "index.html");
+    const linkedDirectory = path.join(root, "nested");
+    try {
+      await fs.writeFile(outside, "keep");
+      try {
+        await fs.symlink(outside, destinationLink);
+        await expect(new TransactionalDirectoryOutputWriter().writeAll(
+          root,
+          new Map([["index.html", "overwrite"]]),
+        )).rejects.toThrow(/symbolic link/i);
+        expect(await fs.readFile(outside, "utf8")).toBe("keep");
+        await fs.rm(destinationLink);
+
+        await fs.symlink(path.dirname(outside), linkedDirectory, "dir");
+        await expect(new TransactionalDirectoryOutputWriter().writeAll(
+          root,
+          new Map([["nested/index.html", "overwrite"]]),
+        )).rejects.toThrow(/regular directory/i);
+        expect(await fs.readFile(outside, "utf8")).toBe("keep");
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "EPERM" &&
+            (error as NodeJS.ErrnoException).code !== "EACCES" &&
+            (error as NodeJS.ErrnoException).code !== "ENOTSUP") {
+          throw error;
+        }
+      }
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+      await fs.rm(outside, { force: true });
+    }
+  });
+
+  it("revalidates directories immediately before recursive traversal", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "directory-index-traversal-link-"));
+    const outside = await fs.mkdtemp(path.join(os.tmpdir(), "directory-index-outside-dir-"));
+    const child = path.join(root, "child");
+    await fs.mkdir(child);
+    await fs.writeFile(path.join(outside, "secret.txt"), "outside");
+
+    class SubstitutingProvider extends PhysicalFileProvider {
+      override async readDirectory(directoryPath: string) {
+        if (directoryPath === child) {
+          await fs.rm(child, { recursive: true });
+          await fs.symlink(outside, child, "dir");
+        }
+        return super.readDirectory(directoryPath);
+      }
+    }
+
+    try {
+      try {
+        await fs.symlink(outside, path.join(root, "symlink-probe"), "dir");
+        await fs.rm(path.join(root, "symlink-probe"));
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "EPERM" ||
+            (error as NodeJS.ErrnoException).code === "EACCES" ||
+            (error as NodeJS.ErrnoException).code === "ENOTSUP") return;
+        throw error;
+      }
+
+      const writer = new RecordingWriter();
+      await expect(generateDirectoryIndexes({
+        folder: root,
+        fileProvider: new SubstitutingProvider(root),
+        outputWriter: writer,
+      })).rejects.toThrow(/failed to read directory/i);
+      expect(writer.calls).toBe(0);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+      await fs.rm(outside, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("runCli", () => {
+  it("rejects explicitly empty paths and treats help as success", async () => {
+    let stderr = "";
+    const originalWrite = process.stderr.write;
+    process.stderr.write = ((chunk: string | Uint8Array) => {
+      stderr += String(chunk);
+      return true;
+    }) as typeof process.stderr.write;
+
+    try {
+      expect(await runCli(["node", "directory-index", "--folder", ""])).toBe(1);
+      expect(stderr).toMatch(/folder path/i);
+      stderr = "";
+      expect(await runCli(["node", "directory-index", "--folder", ".", "--template", ""])).toBe(1);
+      expect(stderr).toMatch(/template path/i);
+      stderr = "";
+      expect(await runCli(["node", "directory-index", "--help"])).toBe(0);
+      expect(stderr).toBe("");
+    } finally {
+      process.stderr.write = originalWrite;
+    }
   });
 });

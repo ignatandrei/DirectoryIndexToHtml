@@ -77,7 +77,7 @@ export const DEFAULT_TEMPLATE = `<!doctype html>
 </html>`;
 
 function normalizeProviderPath(value: string): string {
-  return value.replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
+  return value.split(path.sep).join("/").replace(/^\/+|\/+$/g, "");
 }
 
 function isWindows(): boolean {
@@ -85,7 +85,7 @@ function isWindows(): boolean {
 }
 
 function pathKey(value: string): string {
-  const normalized = normalizeProviderPath(path.resolve(value));
+  const normalized = path.resolve(value);
   return isWindows() ? normalized.toLowerCase() : normalized;
 }
 
@@ -93,6 +93,10 @@ function escapePathSegment(segment: string): string {
   return encodeURIComponent(segment).replace(/[!'()*]/g, (character) =>
     `%${character.charCodeAt(0).toString(16).toUpperCase()}`,
   );
+}
+
+function escapeProviderPath(value: string): string {
+  return value.split("/").map(escapePathSegment).join("/");
 }
 
 function compareNames(left: string, right: string): number {
@@ -158,7 +162,7 @@ export async function generateDirectoryIndexes(
     } catch (error) {
       throw new Error(`Failed to read template '${templateName}'.`, { cause: error });
     }
-    excludedTemplatePath = normalizeProviderPath(templatePath);
+    excludedTemplatePath = templatePath;
   }
 
   const liquid = new Liquid({
@@ -208,7 +212,7 @@ export async function generateDirectoryIndexes(
 
     for (const child of children) {
       if (child.isSymbolicLink) continue;
-      if (/^index\.html$/i.test(child.name)) continue;
+      if (!child.isDirectory && /^index\.html$/i.test(child.name)) continue;
 
       const childRelativePath = directoryRelativePath
         ? `${directoryRelativePath}/${child.name}`
@@ -218,7 +222,7 @@ export async function generateDirectoryIndexes(
         continue;
       }
 
-      const escapedName = escapePathSegment(child.name);
+      const escapedName = escapeProviderPath(child.name);
       entries.push({
         name: toLiquidDataValue(child.name) as string,
         path: normalizeProviderPath(childRelativePath),
@@ -239,9 +243,7 @@ export async function generateDirectoryIndexes(
       if (left.is_directory !== right.is_directory) {
         return left.is_directory ? -1 : 1;
       }
-      const decodedLeft = decodeHtml(left.name);
-      const decodedRight = decodeHtml(right.name);
-      return compareNames(decodedLeft, decodedRight);
+      return compareNames(left.name, right.name);
     });
 
     const breadcrumbs = createBreadcrumbs(ancestors, directoryName);
@@ -301,14 +303,6 @@ export async function generateDirectoryIndexes(
     pageCount: pages.size,
     pages: [...pages.keys()],
   };
-}
-
-function decodeHtml(value: string): string {
-  return value
-    .replaceAll("&lt;", "<")
-    .replaceAll("&gt;", ">")
-    .replaceAll("&quot;", '"')
-    .replaceAll("&amp;", "&");
 }
 
 function isTemplateUnderRoot(templatePath: string, root: string): boolean {

@@ -39,23 +39,20 @@ export class PhysicalFileProvider implements DirectoryFileProvider {
   }
 
   async readDirectory(directoryPath: string): Promise<DirectoryEntry[]> {
+    const directoryStat = await fs.lstat(directoryPath);
+    if (directoryStat.isSymbolicLink() || !directoryStat.isDirectory()) {
+      throw new Error(`Directory '${directoryPath}' is not a regular directory.`);
+    }
+
     const entries = await fs.readdir(directoryPath, { withFileTypes: true });
     const result: DirectoryEntry[] = [];
     for (const entry of entries) {
       const fullPath = path.join(directoryPath, entry.name);
-      let symbolic = entry.isSymbolicLink();
-      if (!symbolic) {
-        try {
-          const stat = await fs.lstat(fullPath);
-          symbolic = stat.isSymbolicLink();
-        } catch {
-          symbolic = true;
-        }
-      }
-      if (symbolic) continue;
+      const stat = entry.isSymbolicLink() ? undefined : await fs.lstat(fullPath);
+      if (entry.isSymbolicLink() || stat?.isSymbolicLink()) continue;
       result.push({
         name: entry.name,
-        isDirectory: entry.isDirectory(),
+        isDirectory: stat?.isDirectory() ?? false,
         isSymbolicLink: false,
       });
     }
@@ -67,10 +64,6 @@ export class PhysicalFileProvider implements DirectoryFileProvider {
   }
 
   async isSymbolicLink(filePath: string): Promise<boolean> {
-    try {
-      return (await fs.lstat(filePath)).isSymbolicLink();
-    } catch {
-      return true;
-    }
+    return (await fs.lstat(filePath)).isSymbolicLink();
   }
 }
