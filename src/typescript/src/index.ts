@@ -168,6 +168,7 @@ export async function generateDirectoryIndexes(
   const liquid = new Liquid({
     strictVariables: true,
     outputEscape: "escape",
+    templates: {},
   });
   let parsedTemplate: Awaited<ReturnType<Liquid["parse"]>>;
   try {

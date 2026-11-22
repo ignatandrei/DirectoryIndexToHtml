@@ -41,7 +41,7 @@ export class TransactionalDirectoryOutputWriter implements DirectoryOutputWriter
 
     const staged = path.join(stagingRoot, "staged");
     const backups = path.join(stagingRoot, "backups");
-    const originals = new Map<string, boolean>();
+    const originals = new Map<string, number | undefined>();
     const rollbackErrors: Error[] = [];
     const cleanupErrors: Error[] = [];
     let failure: unknown;
@@ -73,9 +73,9 @@ export class TransactionalDirectoryOutputWriter implements DirectoryOutputWriter
         if (destinationStat && !destinationStat.isFile()) {
           throw new Error(`Output destination '${destination}' is not a regular file.`);
         }
-        const exists = destinationStat !== undefined;
-        originals.set(destination, exists);
-        if (exists) {
+        const originalMode = destinationStat?.mode;
+        originals.set(destination, originalMode);
+        if (originalMode !== undefined) {
           const backupPath = resolveWithin(backups, relativePath);
           await fs.mkdir(path.dirname(backupPath), { recursive: true });
           await copyFileWithoutFollowingLinks(destination, backupPath);
@@ -89,15 +89,15 @@ export class TransactionalDirectoryOutputWriter implements DirectoryOutputWriter
         await assertSafeParents(root, destination);
         await fs.mkdir(path.dirname(destination), { recursive: true });
         await assertSafeParents(root, destination);
-        await replaceFile(stagedPath, destination);
+        await replaceFile(stagedPath, destination, originals.get(destination));
       }
     } catch (error) {
       failure = error;
       if (commitStarted) {
-        for (const [destination, existed] of originals) {
+        for (const [destination, originalMode] of originals) {
           try {
             await assertSafeParents(root, destination);
-            if (existed) {
+            if (originalMode !== undefined) {
               const relativePath = path.relative(root, destination);
               const backupPath = resolveWithin(backups, relativePath);
               await replaceFile(backupPath, destination);
@@ -173,20 +173,43 @@ async function copyFileWithoutFollowingLinks(source: string, destination: string
     constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0),
   );
   try {
+    const { mode } = await sourceHandle.stat();
     const contents = await sourceHandle.readFile();
-    await fs.writeFile(destination, contents, { flag: "wx" });
+    const destinationHandle = await fs.open(destination, "wx", mode & 0o777);
+    try {
+      await destinationHandle.writeFile(contents);
+      await destinationHandle.chmod(mode & 0o777);
+    } finally {
+      await destinationHandle.close();
+    }
   } finally {
     await sourceHandle.close();
   }
 }
 
-async function replaceFile(source: string, destination: string): Promise<void> {
+async function replaceFile(
+  source: string,
+  destination: string,
+  mode?: number,
+): Promise<void> {
   const temporary = path.join(
     path.dirname(destination),
     `.directory-index-${randomUUID()}.tmp`,
   );
   try {
     await fs.copyFile(source, temporary, constants.COPYFILE_EXCL);
+    const sourceHandle = await fs.open(source, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+    try {
+      const sourceMode = mode ?? (await sourceHandle.stat()).mode;
+      const temporaryHandle = await fs.open(temporary, "r+");
+      try {
+        await temporaryHandle.chmod(sourceMode & 0o777);
+      } finally {
+        await temporaryHandle.close();
+      }
+    } finally {
+      await sourceHandle.close();
+    }
     await fs.rename(temporary, destination);
   } finally {
     await fs.rm(temporary, { force: true });

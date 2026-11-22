@@ -1,7 +1,7 @@
 import path from "node:path";
 import os from "node:os";
 import { promises as fs } from "node:fs";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   generateDirectoryIndexes,
   type DirectoryEntry,
@@ -151,7 +151,40 @@ describe("generateDirectoryIndexes", () => {
     const page = writer.pages.get("index.html") ?? "";
     expect(page).toContain('href="docs/report.txt"');
     expect(page).not.toContain('href="docs%2Freport.txt"');
-    expect(page.indexOf('href="&amp;lt;.txt"')).toBeLessThan(page.indexOf('href="0.txt"'));
+    const entityLikeNamePosition = page.indexOf('href="%26lt%3B.txt"');
+    const zeroNamePosition = page.indexOf('href="0.txt"');
+    expect(entityLikeNamePosition).toBeGreaterThanOrEqual(0);
+    expect(zeroNamePosition).toBeGreaterThanOrEqual(0);
+    expect(entityLikeNamePosition).toBeLessThan(zeroNamePosition);
+  });
+
+  it("sorts directories before files and sorts each group by name", async () => {
+    const root = path.join(os.tmpdir(), "directory-index-ordering");
+    const provider = new MemoryProvider();
+    provider.addDirectory(root, [
+      { name: "z.txt", isDirectory: false, isSymbolicLink: false },
+      { name: "b-dir", isDirectory: true, isSymbolicLink: false },
+      { name: "a.txt", isDirectory: false, isSymbolicLink: false },
+      { name: "a-dir", isDirectory: true, isSymbolicLink: false },
+    ]);
+    provider.addDirectory(path.join(root, "b-dir"), []);
+    provider.addDirectory(path.join(root, "a-dir"), []);
+    const writer = new RecordingWriter();
+
+    await generateDirectoryIndexes({ folder: root, fileProvider: provider, outputWriter: writer });
+
+    const page = writer.pages.get("index.html") ?? "";
+    const orderedHrefs = [
+      'href="a-dir/index.html"',
+      'href="b-dir/index.html"',
+      'href="a.txt"',
+      'href="z.txt"',
+    ].map((href) => {
+      const position = page.indexOf(href);
+      expect(position).toBeGreaterThanOrEqual(0);
+      return position;
+    });
+    expect(orderedHrefs).toEqual([...orderedHrefs].sort((left, right) => left - right));
   });
 
   it("includes directories named like generated index files", async () => {
@@ -201,6 +234,25 @@ describe("generateDirectoryIndexes", () => {
       fileProvider: provider,
       outputWriter: writer,
     })).rejects.toThrow(/rendering template|undefined/i);
+    expect(writer.calls).toBe(0);
+  });
+
+  it("does not allow includes to read files from the filesystem", async () => {
+    const root = path.join(os.tmpdir(), "directory-index-include");
+    const provider = new MemoryProvider();
+    provider.addDirectory(root, []);
+    provider.addFile(
+      path.resolve("virtual-template"),
+      "{% include 'package.json' %}",
+    );
+    const writer = new RecordingWriter();
+
+    await expect(generateDirectoryIndexes({
+      folder: root,
+      template: "virtual-template",
+      fileProvider: provider,
+      outputWriter: writer,
+    })).rejects.toThrow(/include|template/i);
     expect(writer.calls).toBe(0);
   });
 
@@ -269,6 +321,46 @@ describe("generateDirectoryIndexes", () => {
     } finally {
       await fs.rm(root, { recursive: true, force: true });
       await fs.rm(outside, { force: true });
+    }
+  });
+
+  it("restores existing file contents and permissions after a commit failure", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "directory-index-rollback-mode-"));
+    const firstDestination = path.join(root, "index.html");
+    const secondDestination = path.join(root, "nested", "index.html");
+    await fs.mkdir(path.dirname(secondDestination));
+    await fs.writeFile(firstDestination, "original root");
+    await fs.writeFile(secondDestination, "original nested");
+    await fs.chmod(firstDestination, 0o600);
+    await fs.chmod(secondDestination, 0o600);
+    const firstMode = (await fs.stat(firstDestination)).mode & 0o777;
+    const secondMode = (await fs.stat(secondDestination)).mode & 0o777;
+
+    const rename = fs.rename.bind(fs);
+    let injectedFailure = false;
+    const renameSpy = vi.spyOn(fs, "rename").mockImplementation(async (source, destination) => {
+      if (destination === secondDestination && !injectedFailure) {
+        injectedFailure = true;
+        throw new Error("simulated commit failure");
+      }
+      return rename(source, destination);
+    });
+
+    try {
+      await expect(new TransactionalDirectoryOutputWriter().writeAll(
+        root,
+        new Map([
+          ["index.html", "updated root"],
+          ["nested/index.html", "updated nested"],
+        ]),
+      )).rejects.toThrow("simulated commit failure");
+      expect(await fs.readFile(firstDestination, "utf8")).toBe("original root");
+      expect(await fs.readFile(secondDestination, "utf8")).toBe("original nested");
+      expect((await fs.stat(firstDestination)).mode & 0o777).toBe(firstMode);
+      expect((await fs.stat(secondDestination)).mode & 0o777).toBe(secondMode);
+    } finally {
+      renameSpy.mockRestore();
+      await fs.rm(root, { recursive: true, force: true });
     }
   });
 
